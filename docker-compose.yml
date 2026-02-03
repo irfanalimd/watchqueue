@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # MongoDB Replica Set - 3 nodes for high availability
+  # Uses host.docker.internal so the replica set works both inside and outside Docker
+  mongo1:
+    image: mongo:7.0
+    container_name: watchqueue-mongo1
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1_data:/data/db
+      - mongo1_config:/data/configdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - watchqueue-network
+    healthcheck:
+      test: echo "try { rs.status() } catch (err) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo1:27017'},{_id:1,host:'mongo2:27018'},{_id:2,host:'mongo3:27019'}]}) }" | mongosh --port 27017 --quiet
+      interval: 5s
+      timeout: 30s
+      start_period: 0s
+      retries: 30
+
+  mongo2:
+    image: mongo:7.0
+    container_name: watchqueue-mongo2
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27018"]
+    ports:
+      - "27018:27018"
+    volumes:
+      - mongo2_data:/data/db
+      - mongo2_config:/data/configdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - watchqueue-network
+    depends_on:
+      - mongo1
+
+  mongo3:
+    image: mongo:7.0
+    container_name: watchqueue-mongo3
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27019"]
+    ports:
+      - "27019:27019"
+    volumes:
+      - mongo3_data:/data/db
+      - mongo3_config:/data/configdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - watchqueue-network
+    depends_on:
+      - mongo1
+
+  # MongoDB Express - Web-based admin interface (optional)
+  mongo-express:
+    image: mongo-express:1.0
+    container_name: watchqueue-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo1:27017,mongo2:27018,mongo3:27019/?replicaSet=rs0
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    networks:
+      - watchqueue-network
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+    restart: unless-stopped
+
+  # WatchQueue API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: watchqueue-api
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongo1:27017,mongo2:27018,mongo3:27019/?replicaSet=rs0
+      - MONGODB_DATABASE=watchqueue
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+    networks:
+      - watchqueue-network
+    depends_on:
+      mongo1:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  watchqueue-network:
+    driver: bridge
+
+volumes:
+  mongo1_data:
+  mongo1_config:
+  mongo2_data:
+  mongo2_config:
+  mongo3_data:
+  mongo3_config:

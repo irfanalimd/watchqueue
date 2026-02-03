@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WatchQueue</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Landing/Join Screen -->
+        <div id="landing-screen" class="screen active">
+            <div class="landing-container">
+                <div class="logo">
+                    <span class="logo-icon">▶</span>
+                    <h1>WatchQueue</h1>
+                </div>
+                <p class="tagline">Decide what to watch together</p>
+
+                <div class="landing-actions">
+                    <div class="action-card" id="create-room-card">
+                        <div class="action-icon">+</div>
+                        <h3>Create Room</h3>
+                        <p>Start a new watch party</p>
+                    </div>
+
+                    <div class="action-card" id="join-room-card">
+                        <div class="action-icon">→</div>
+                        <h3>Join Room</h3>
+                        <p>Enter with a code</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Create Room Modal -->
+        <div id="create-modal" class="modal">
+            <div class="modal-content">
+                <button class="modal-close">&times;</button>
+                <h2>Create a Room</h2>
+                <form id="create-room-form">
+                    <div class="form-group">
+                        <label for="room-name">Room Name</label>
+                        <input type="text" id="room-name" placeholder="Friday Movie Night" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="your-name">Your Name</label>
+                        <input type="text" id="your-name" placeholder="Enter your name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Pick an Avatar</label>
+                        <div class="avatar-picker" id="avatar-picker-create">
+                            <span class="avatar-option selected" data-avatar="😀">😀</span>
+                            <span class="avatar-option" data-avatar="🦊">🦊</span>
+                            <span class="avatar-option" data-avatar="🐻">🐻</span>
+                            <span class="avatar-option" data-avatar="🦋">🦋</span>
+                            <span class="avatar-option" data-avatar="🐸">🐸</span>
+                            <span class="avatar-option" data-avatar="🦄">🦄</span>
+                            <span class="avatar-option" data-avatar="🐼">🐼</span>
+                            <span class="avatar-option" data-avatar="🦁">🦁</span>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Room</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Join Room Modal -->
+        <div id="join-modal" class="modal">
+            <div class="modal-content">
+                <button class="modal-close">&times;</button>
+                <h2>Join a Room</h2>
+                <form id="join-room-form">
+                    <div class="form-group">
+                        <label for="room-code">Room Code</label>
+                        <input type="text" id="room-code" placeholder="ABC123" maxlength="6" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="join-name">Your Name</label>
+                        <input type="text" id="join-name" placeholder="Enter your name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Pick an Avatar</label>
+                        <div class="avatar-picker" id="avatar-picker-join">
+                            <span class="avatar-option selected" data-avatar="😀">😀</span>
+                            <span class="avatar-option" data-avatar="🦊">🦊</span>
+                            <span class="avatar-option" data-avatar="🐻">🐻</span>
+                            <span class="avatar-option" data-avatar="🦋">🦋</span>
+                            <span class="avatar-option" data-avatar="🐸">🐸</span>
+                            <span class="avatar-option" data-avatar="🦄">🦄</span>
+                            <span class="avatar-option" data-avatar="🐼">🐼</span>
+                            <span class="avatar-option" data-avatar="🦁">🦁</span>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Join Room</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Room Screen -->
+        <div id="room-screen" class="screen">
+            <header class="room-header">
+                <div class="room-info">
+                    <h1 id="room-title">Movie Night</h1>
+                    <div class="room-code-display">
+                        Code: <span id="display-room-code">ABC123</span>
+                        <button class="copy-btn" id="copy-code-btn" title="Copy code">📋</button>
+                    </div>
+                </div>
+                <div class="room-members" id="room-members">
+                    <!-- Members will be inserted here -->
+                </div>
+                <button class="btn btn-ghost" id="leave-room-btn">Leave</button>
+            </header>
+
+            <main class="room-main">
+                <!-- Add Movie Section -->
+                <section class="add-movie-section">
+                    <div class="movie-search-container">
+                        <form id="add-movie-form" class="add-movie-form">
+                            <div class="search-input-wrapper">
+                                <input type="text" id="movie-title" placeholder="Search for a movie or show..." autocomplete="off" required>
+                                <div id="search-results-dropdown" class="search-dropdown"></div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Add</button>
+                        </form>
+                    </div>
+                </section>
+
+                <!-- Queue Section -->
+                <section class="queue-section">
+                    <div class="section-header">
+                        <h2>Queue</h2>
+                        <div class="selection-controls">
+                            <select id="selection-mode">
+                                <option value="weighted_random">Weighted Random</option>
+                                <option value="highest_votes">Highest Votes</option>
+                                <option value="round_robin">Round Robin</option>
+                            </select>
+                            <button class="btn btn-accent" id="pick-movie-btn">🎲 Pick Movie</button>
+                        </div>
+                    </div>
+                    <div id="queue-list" class="queue-list">
+                        <!-- Queue items will be inserted here -->
+                        <div class="empty-state" id="empty-queue">
+                            <span class="empty-icon">🎬</span>
+                            <p>No movies in queue yet</p>
+                            <p class="subtle">Add something to get started!</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Wheel Selection Overlay -->
+                <div id="wheel-overlay" class="wheel-overlay">
+                    <div class="wheel-container">
+                        <h2 class="wheel-header" id="wheel-header-text">Spinning the Wheel...</h2>
+                        <div class="wheel-stage">
+                            <div class="wheel-pointer"></div>
+                            <canvas id="wheel-canvas" width="420" height="420"></canvas>
+                        </div>
+                        <div class="wheel-result" id="wheel-result">
+                            <h2>Tonight's Pick</h2>
+                            <div class="selected-movie">
+                                <div class="selected-poster" id="selected-poster"></div>
+                                <div class="selected-info">
+                                    <h3 id="selected-title">Movie Title</h3>
+                                    <p id="selected-meta"></p>
+                                </div>
+                            </div>
+                            <div class="selection-actions">
+                                <button class="btn btn-primary" id="start-watching-btn">Start Watching</button>
+                                <button class="btn btn-ghost" id="close-selection-btn">Pick Again</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="confetti-canvas" class="confetti-canvas"></canvas>
+            </main>
+
+            <!-- History Tab -->
+            <aside class="history-sidebar" id="history-sidebar">
+                <div class="sidebar-header">
+                    <h3>Watch History</h3>
+                    <button class="close-sidebar-btn" id="close-history-btn">&times;</button>
+                </div>
+                <div id="history-list" class="history-list">
+                    <!-- History items will be inserted here -->
+                </div>
+            </aside>
+
+            <button class="history-toggle" id="history-toggle-btn" title="View History">📜</button>
+        </div>
+
+        <!-- Toast Container -->
+        <div id="toast-container"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
