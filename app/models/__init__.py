@@ -26,6 +26,17 @@ from app.models.watch_history import (
     WatchHistoryCreate,
     WatchHistoryInDB,
 )
+from app.models.reaction import (
+    ReactionCreate,
+    ALLOWED_REACTIONS,
+    REACTION_EMOJI_MAP,
+)
+from app.models.auth import (
+    GoogleAuthRequest,
+    AuthUser,
+    AuthSessionResponse,
+    AuthConfigResponse,
+)
 
 __all__ = [
     # Room models
@@ -50,4 +61,13 @@ __all__ = [
     "WatchHistory",
     "WatchHistoryCreate",
     "WatchHistoryInDB",
+    # Reaction models
+    "ReactionCreate",
+    "ALLOWED_REACTIONS",
+    "REACTION_EMOJI_MAP",
+    # Auth models
+    "GoogleAuthRequest",
+    "AuthUser",
+    "AuthSessionResponse",
+    "AuthConfigResponse",
 ]

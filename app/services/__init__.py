@@ -6,6 +6,8 @@ from app.services.voting import VotingService
 from app.services.selection import SelectionService
 from app.services.history import HistoryService
 from app.services.external_api import TMDBClient
+from app.services.reactions import ReactionService
+from app.services.auth import AuthService
 
 __all__ = [
     "RoomService",
@@ -13,5 +15,7 @@ __all__ = [
     "VotingService",
     "SelectionService",
     "HistoryService",
+    "ReactionService",
+    "AuthService",
     "TMDBClient",
 ]

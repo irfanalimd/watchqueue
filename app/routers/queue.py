@@ -1,8 +1,8 @@
 """Queue management API endpoints."""
 
-import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 
 from app.database import get_database
 from app.models.queue_item import (
@@ -36,10 +36,26 @@ def get_history_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> His
     return HistoryService(db)
 
 
-async def enrich_item_background(item_id: str, title: str, db: AsyncIOMotorDatabase):
+async def enrich_item_background(
+    item_id: str,
+    title: str,
+    room_id: str,
+    db: AsyncIOMotorDatabase,
+    tmdb_id: int | None = None,
+):
     """Background task to enrich item with metadata."""
     try:
-        enrichment = await enrich_queue_item(title)
+        room_doc = await db.rooms.find_one({"_id": ObjectId(room_id)}, {"members": 1})
+        member_regions = [
+            m.get("region", "US")
+            for m in (room_doc or {}).get("members", [])
+            if m.get("region")
+        ]
+        enrichment = await enrich_queue_item(
+            title,
+            tmdb_id=tmdb_id,
+            member_regions=member_regions,
+        )
         if enrichment:
             service = QueueService(db)
             await service.enrich_item(
@@ -49,6 +65,9 @@ async def enrich_item_background(item_id: str, title: str, db: AsyncIOMotorDatab
                 runtime_minutes=enrichment.get("runtime_minutes"),
                 genres=enrichment.get("genres"),
                 streaming_on=enrichment.get("streaming_on"),
+                play_now_url=enrichment.get("play_now_url"),
+                provider_links=enrichment.get("provider_links"),
+                providers_by_region=enrichment.get("providers_by_region"),
                 tmdb_id=enrichment.get("tmdb_id"),
             )
     except Exception:
@@ -95,9 +114,14 @@ async def add_to_queue(
     """
     try:
         item = await service.add_item(item_data)
-        # Skip background enrichment if TMDB data was already provided
-        if not item.poster_url and not item_data.tmdb_id:
-            background_tasks.add_task(enrich_item_background, item.id, item.title, db)
+        background_tasks.add_task(
+            enrich_item_background,
+            item.id,
+            item.title,
+            item.room_id,
+            db,
+            item.tmdb_id,
+        )
         return item
     except ValueError as e:
         raise HTTPException(
@@ -125,6 +149,8 @@ async def get_queue_item(
 async def get_room_queue(
     room_id: str,
     status_filter: QueueItemStatus | None = None,
+    provider: str | None = Query(default=None),
+    available_now: bool = Query(default=False),
     limit: int = 100,
     skip: int = 0,
     service: QueueService = Depends(get_queue_service),
@@ -136,6 +162,8 @@ async def get_room_queue(
     return await service.get_room_queue(
         room_id,
         status=status_filter,
+        provider=provider,
+        available_now=available_now,
         limit=limit,
         skip=skip,
     )
@@ -175,6 +203,7 @@ async def remove_from_queue(
 async def enrich_item(
     item_id: str,
     service: QueueService = Depends(get_queue_service),
+    db: AsyncIOMotorDatabase = Depends(get_database),
 ) -> QueueItem:
     """Manually trigger metadata enrichment for an item."""
     item = await service.get_item(item_id)
@@ -184,7 +213,17 @@ async def enrich_item(
             detail="Queue item not found",
         )
 
-    enrichment = await enrich_queue_item(item.title)
+    room_doc = await db.rooms.find_one({"_id": ObjectId(item.room_id)}, {"members": 1})
+    member_regions = [
+        m.get("region", "US")
+        for m in (room_doc or {}).get("members", [])
+        if m.get("region")
+    ]
+    enrichment = await enrich_queue_item(
+        item.title,
+        tmdb_id=item.tmdb_id,
+        member_regions=member_regions,
+    )
     if enrichment:
         item = await service.enrich_item(
             item_id,
@@ -193,6 +232,9 @@ async def enrich_item(
             runtime_minutes=enrichment.get("runtime_minutes"),
             genres=enrichment.get("genres"),
             streaming_on=enrichment.get("streaming_on"),
+            play_now_url=enrichment.get("play_now_url"),
+            provider_links=enrichment.get("provider_links"),
+            providers_by_region=enrichment.get("providers_by_region"),
             tmdb_id=enrichment.get("tmdb_id"),
         )
 

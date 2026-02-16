@@ -19,6 +19,7 @@ class Member(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
     avatar: str = Field(default="👤", max_length=10)
+    region: str = Field(default="US", min_length=2, max_length=2)
 
     model_config = {"extra": "forbid"}
 
@@ -58,6 +59,7 @@ class Room(RoomBase):
     id: str = Field(..., alias="_id")
     code: str = Field(..., min_length=4, max_length=10)
     members: list[Member] = Field(default_factory=list)
+    admins: list[str] = Field(default_factory=list)
     settings: RoomSettings = Field(default_factory=RoomSettings)
     created_at: datetime
 
@@ -73,6 +75,7 @@ class RoomInDB(BaseModel):
     name: str
     code: str
     members: list[Member] = Field(default_factory=list)
+    admins: list[str] = Field(default_factory=list)
     settings: RoomSettings = Field(default_factory=RoomSettings)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -88,6 +91,7 @@ class RoomInDB(BaseModel):
             name=self.name,
             code=self.code,
             members=self.members,
+            admins=self.admins,
             settings=self.settings,
             created_at=self.created_at,
         )

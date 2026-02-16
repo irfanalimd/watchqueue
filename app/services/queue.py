@@ -1,7 +1,7 @@
 """Queue service for managing movie/show queue."""
 
-import asyncio
 import re
+import asyncio
 from datetime import datetime
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -18,9 +18,18 @@ from app.models.queue_item import (
 class QueueService:
     """Service for managing the watch queue."""
 
+    _add_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(self, db: AsyncIOMotorDatabase):
         self.db = db
         self.collection = db.queue_items
+
+    @classmethod
+    def _get_add_lock(cls, room_id: str, title: str) -> asyncio.Lock:
+        key = f"{room_id}:{title.strip().lower()}"
+        if key not in cls._add_locks:
+            cls._add_locks[key] = asyncio.Lock()
+        return cls._add_locks[key]
 
     async def add_item(self, item_data: QueueItemCreate) -> QueueItem:
         """Add an item to the queue.
@@ -32,26 +41,12 @@ class QueueService:
             raise ValueError("Invalid room_id")
 
         room_oid = ObjectId(item_data.room_id)
+        lock = self._get_add_lock(item_data.room_id, item_data.title)
+        async with lock:
 
-        # Check for existing item by title (case-insensitive)
-        # Escape regex special characters in title
-        escaped_title = re.escape(item_data.title)
-        existing = await self.collection.find_one({
-            "room_id": room_oid,
-            "title": {"$regex": f"^{escaped_title}$", "$options": "i"},
-            "status": {"$ne": QueueItemStatus.REMOVED.value},
-        })
-
-        if existing:
-            existing["_id"] = str(existing["_id"])
-            existing["room_id"] = str(existing["room_id"])
-            return QueueItem(**existing)
-
-        # Check for existing item by TMDB ID if provided
-        if item_data.tmdb_id:
             existing = await self.collection.find_one({
                 "room_id": room_oid,
-                "tmdb_id": item_data.tmdb_id,
+                "title": {"$regex": f"^{re.escape(item_data.title)}$", "$options": "i"},
                 "status": {"$ne": QueueItemStatus.REMOVED.value},
             })
             if existing:
@@ -59,42 +54,57 @@ class QueueService:
                 existing["room_id"] = str(existing["room_id"])
                 return QueueItem(**existing)
 
-        item_doc = {
-            "room_id": room_oid,
-            "title": item_data.title,
-            "tmdb_id": item_data.tmdb_id,
-            "poster_url": item_data.poster_url,
-            "year": item_data.year,
-            "runtime_minutes": item_data.runtime_minutes,
-            "genres": item_data.genres or [],
-            "streaming_on": [],
-            "added_by": item_data.added_by,
-            "added_at": datetime.utcnow(),
-            "status": QueueItemStatus.QUEUED.value,
-            "vote_score": 0,
-            "upvotes": 0,
-            "downvotes": 0,
-            "overview": item_data.overview,
-            "vote_average": item_data.vote_average,
-        }
+            # Check for existing item by TMDB ID if provided
+            if item_data.tmdb_id:
+                existing = await self.collection.find_one({
+                    "room_id": room_oid,
+                    "tmdb_id": item_data.tmdb_id,
+                    "status": {"$ne": QueueItemStatus.REMOVED.value},
+                })
+                if existing:
+                    existing["_id"] = str(existing["_id"])
+                    existing["room_id"] = str(existing["room_id"])
+                    return QueueItem(**existing)
 
-        try:
-            result = await self.collection.insert_one(item_doc)
-            item_doc["_id"] = str(result.inserted_id)
-            item_doc["room_id"] = str(item_doc["room_id"])
-            return QueueItem(**item_doc)
-        except DuplicateKeyError:
-            # Race condition: another request added the same item
-            # Fetch and return the existing item
-            existing = await self.collection.find_one({
+            item_doc = {
                 "room_id": room_oid,
-                "title": {"$regex": f"^{item_data.title}$", "$options": "i"},
-            })
-            if existing:
-                existing["_id"] = str(existing["_id"])
-                existing["room_id"] = str(existing["room_id"])
-                return QueueItem(**existing)
-            raise
+                "title": item_data.title,
+                "tmdb_id": item_data.tmdb_id,
+                "poster_url": item_data.poster_url,
+                "year": item_data.year,
+                "runtime_minutes": item_data.runtime_minutes,
+                "genres": item_data.genres or [],
+                "streaming_on": [],
+                "play_now_url": None,
+                "provider_links": [],
+                "providers_by_region": {},
+                "added_by": item_data.added_by,
+                "added_at": datetime.utcnow(),
+                "status": QueueItemStatus.QUEUED.value,
+                "vote_score": 0,
+                "upvotes": 0,
+                "downvotes": 0,
+                "overview": item_data.overview,
+                "vote_average": item_data.vote_average,
+            }
+
+            try:
+                result = await self.collection.insert_one(item_doc)
+                item_doc["_id"] = str(result.inserted_id)
+                item_doc["room_id"] = str(item_doc["room_id"])
+                return QueueItem(**item_doc)
+            except DuplicateKeyError:
+                # Race condition: another request added the same item
+                # Fetch and return the existing item
+                existing = await self.collection.find_one({
+                    "room_id": room_oid,
+                    "title": {"$regex": f"^{item_data.title}$", "$options": "i"},
+                })
+                if existing:
+                    existing["_id"] = str(existing["_id"])
+                    existing["room_id"] = str(existing["room_id"])
+                    return QueueItem(**existing)
+                raise
 
     async def get_item(self, item_id: str) -> QueueItem | None:
         """Get a queue item by ID."""
@@ -112,6 +122,8 @@ class QueueService:
         self,
         room_id: str,
         status: QueueItemStatus | None = None,
+        provider: str | None = None,
+        available_now: bool = False,
         limit: int = 100,
         skip: int = 0,
     ) -> list[QueueItem]:
@@ -125,6 +137,10 @@ class QueueService:
         else:
             # Default to showing queued items
             query["status"] = {"$nin": [QueueItemStatus.REMOVED.value]}
+        if provider:
+            query["streaming_on"] = {"$regex": f"^{re.escape(provider)}$", "$options": "i"}
+        if available_now:
+            query["streaming_on.0"] = {"$exists": True}
 
         cursor = self.collection.find(query).sort([
             ("vote_score", -1),
@@ -170,6 +186,9 @@ class QueueService:
         runtime_minutes: int | None = None,
         genres: list[str] | None = None,
         streaming_on: list[str] | None = None,
+        play_now_url: str | None = None,
+        provider_links: list[dict] | None = None,
+        providers_by_region: dict[str, list[str]] | None = None,
         tmdb_id: int | None = None,
     ) -> QueueItem | None:
         """Enrich a queue item with metadata from external APIs."""
@@ -187,6 +206,12 @@ class QueueService:
             update["genres"] = genres
         if streaming_on is not None:
             update["streaming_on"] = streaming_on
+        if play_now_url is not None:
+            update["play_now_url"] = play_now_url
+        if provider_links is not None:
+            update["provider_links"] = provider_links
+        if providers_by_region is not None:
+            update["providers_by_region"] = providers_by_region
         if tmdb_id is not None:
             update["tmdb_id"] = tmdb_id
 

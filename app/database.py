@@ -24,6 +24,7 @@ class Database:
         cls.db = cls.client[settings.mongodb_database]
         logger.info(f"Connected to MongoDB database: {settings.mongodb_database}")
         await cls._create_indexes()
+        await cls.run_migrations()
 
     @classmethod
     async def disconnect(cls) -> None:
@@ -44,6 +45,8 @@ class Database:
         await cls.db.rooms.create_indexes([
             IndexModel([("code", ASCENDING)], unique=True),
             IndexModel([("created_at", DESCENDING)]),
+            IndexModel([("members.user_id", ASCENDING)]),
+            IndexModel([("admins", ASCENDING)]),
         ])
 
         # Queue items collection indexes
@@ -66,13 +69,86 @@ class Database:
             IndexModel([("item_id", ASCENDING)], name="item_lookup"),
         ])
 
+        # Reactions collection - unique per item/user/reaction
+        await cls.db.reactions.create_indexes([
+            IndexModel(
+                [("item_id", ASCENDING), ("user_id", ASCENDING), ("reaction", ASCENDING)],
+                unique=True,
+                name="item_user_reaction_unique",
+            ),
+            IndexModel([("item_id", ASCENDING)], name="reaction_item_lookup"),
+        ])
+
         # Watch history collection indexes
         await cls.db.watch_history.create_indexes([
             IndexModel([("room_id", ASCENDING), ("watched_at", DESCENDING)]),
             IndexModel([("item_id", ASCENDING)], unique=True),
         ])
 
+        # Users collection indexes
+        await cls.db.users.create_indexes([
+            IndexModel([("google_sub", ASCENDING)], unique=True),
+            IndexModel([("email", ASCENDING)]),
+        ])
+
+        # Sessions collection indexes
+        await cls.db.sessions.create_indexes([
+            IndexModel([("token", ASCENDING)], unique=True),
+            IndexModel([("expires_at", ASCENDING)], expireAfterSeconds=0),
+            IndexModel([("user_id", ASCENDING)]),
+        ])
+
         logger.info("Database indexes created successfully")
+
+    @classmethod
+    async def run_migrations(cls) -> None:
+        """Run lightweight data backfills for backward compatibility."""
+        if cls.db is None:
+            raise RuntimeError("Database not connected")
+
+        # Ensure members have a region for provider availability calculations
+        async for room in cls.db.rooms.find({}, {"members": 1}):
+            members = room.get("members", [])
+            changed = False
+            normalized_members = []
+            for member in members:
+                normalized = dict(member)
+                region = (normalized.get("region") or "US").strip().upper()
+                if normalized.get("region") != region:
+                    changed = True
+                normalized["region"] = region
+                normalized_members.append(normalized)
+
+            if changed:
+                await cls.db.rooms.update_one(
+                    {"_id": room["_id"]},
+                    {"$set": {"members": normalized_members}},
+                )
+
+        # Backfill missing/empty admins: make the first room member the admin.
+        async for room in cls.db.rooms.find(
+            {
+                "$or": [
+                    {"admins": {"$exists": False}},
+                    {"admins": []},
+                ]
+            },
+            {"members": 1, "admins": 1},
+        ):
+            members = room.get("members", [])
+            first_member_id = members[0].get("user_id") if members else None
+            if first_member_id:
+                await cls.db.rooms.update_one(
+                    {"_id": room["_id"]},
+                    {"$set": {"admins": [first_member_id]}},
+                )
+            else:
+                await cls.db.rooms.update_one(
+                    {"_id": room["_id"]},
+                    {"$set": {"admins": []}},
+                )
+
+        logger.info("Database migrations completed")
 
     @classmethod
     def get_db(cls) -> AsyncIOMotorDatabase:

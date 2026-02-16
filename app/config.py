@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # TMDB API settings
     tmdb_api_key: str = ""
     tmdb_base_url: str = "https://api.themoviedb.org/3"
+    default_region: str = "US"
+    google_client_id: str = ""
+    auth_session_ttl_seconds: int = 60 * 60 * 24 * 30
 
     # Application settings
     app_name: str = "WatchQueue"

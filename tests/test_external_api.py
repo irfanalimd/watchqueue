@@ -121,6 +121,25 @@ class TestEnrichQueueItem:
         respx.get("https://api.themoviedb.org/3/search/movie").mock(
             return_value=Response(200, json=mock_tmdb_response)
         )
+        respx.get("https://api.themoviedb.org/3/movie/27205/watch/providers").mock(
+            return_value=Response(
+                200,
+                json={
+                    "id": 27205,
+                    "results": {
+                        "US": {
+                            "link": "https://www.themoviedb.org/movie/27205/watch",
+                            "flatrate": [
+                                {
+                                    "provider_name": "Netflix",
+                                    "logo_path": "/logo.png",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        )
 
         tmdb_client = TMDBClient(api_key="test_key")
         try:
@@ -130,6 +149,9 @@ class TestEnrichQueueItem:
             assert result["tmdb_id"] == 27205
             assert "poster_url" in result
             assert "year" in result
+            assert result["play_now_url"] == "https://www.themoviedb.org/movie/27205/watch"
+            assert "Netflix" in result["streaming_on"]
+            assert result["provider_links"][0]["provider_name"] == "Netflix"
         finally:
             await tmdb_client.close()
 

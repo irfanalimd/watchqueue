@@ -19,6 +19,15 @@ class QueueItemBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
 
 
+class ProviderLink(BaseModel):
+    """Provider link details for a queue item."""
+    provider_name: str
+    region: str
+    access_type: str
+    provider_logo: str | None = None
+    link: str | None = None
+
+
 class QueueItemCreate(QueueItemBase):
     """Model for creating a queue item."""
     room_id: str = Field(..., min_length=1)
@@ -40,6 +49,9 @@ class QueueItemUpdate(BaseModel):
     runtime_minutes: int | None = Field(default=None, ge=1, le=1000)
     genres: list[str] | None = None
     streaming_on: list[str] | None = None
+    play_now_url: str | None = None
+    provider_links: list[ProviderLink] | None = None
+    providers_by_region: dict[str, list[str]] | None = None
 
     model_config = {"extra": "forbid"}
 
@@ -54,6 +66,9 @@ class QueueItem(QueueItemBase):
     runtime_minutes: int | None = None
     genres: list[str] = Field(default_factory=list)
     streaming_on: list[str] = Field(default_factory=list)
+    play_now_url: str | None = None
+    provider_links: list[ProviderLink] = Field(default_factory=list)
+    providers_by_region: dict[str, list[str]] = Field(default_factory=dict)
     added_by: str
     added_at: datetime
     status: QueueItemStatus = QueueItemStatus.QUEUED
@@ -80,6 +95,9 @@ class QueueItemInDB(BaseModel):
     runtime_minutes: int | None = None
     genres: list[str] = Field(default_factory=list)
     streaming_on: list[str] = Field(default_factory=list)
+    play_now_url: str | None = None
+    provider_links: list[ProviderLink] = Field(default_factory=list)
+    providers_by_region: dict[str, list[str]] = Field(default_factory=dict)
     added_by: str
     added_at: datetime = Field(default_factory=datetime.utcnow)
     status: QueueItemStatus = QueueItemStatus.QUEUED
@@ -106,6 +124,9 @@ class QueueItemInDB(BaseModel):
             runtime_minutes=self.runtime_minutes,
             genres=self.genres,
             streaming_on=self.streaming_on,
+            play_now_url=self.play_now_url,
+            provider_links=self.provider_links,
+            providers_by_region=self.providers_by_region,
             added_by=self.added_by,
             added_at=self.added_at,
             status=self.status,

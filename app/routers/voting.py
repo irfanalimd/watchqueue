@@ -5,8 +5,10 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import get_database
 from app.models.vote import Vote, VoteCreate, VoteType
+from app.models.reaction import ReactionCreate
 from app.services.voting import VotingService
 from app.services.history import HistoryService
+from app.services.reactions import ReactionService
 from app.models.watch_history import WatchHistory, RatingUpdate
 
 router = APIRouter(prefix="/votes", tags=["voting"])
@@ -20,6 +22,11 @@ def get_voting_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> Voti
 def get_history_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> HistoryService:
     """Dependency for history service."""
     return HistoryService(db)
+
+
+def get_reaction_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> ReactionService:
+    """Dependency for reaction service."""
+    return ReactionService(db)
 
 
 @router.post("", response_model=Vote, status_code=status.HTTP_201_CREATED)
@@ -56,7 +63,7 @@ async def remove_vote(
         )
 
 
-@router.get("/{item_id}/{user_id}", response_model=Vote)
+@router.get("/user/{item_id}/{user_id}", response_model=Vote)
 async def get_vote(
     item_id: str,
     user_id: str,
@@ -102,6 +109,40 @@ async def get_user_votes_in_room(
     """
     votes = await service.get_user_votes_in_room(room_id, user_id)
     return {item_id: vote.value for item_id, vote in votes.items()}
+
+
+@router.post("/reactions")
+async def toggle_reaction(
+    reaction_data: ReactionCreate,
+    service: ReactionService = Depends(get_reaction_service),
+) -> dict[str, str | bool]:
+    """Toggle an emoji reaction on a queue item."""
+    try:
+        active = await service.toggle_reaction(
+            reaction_data.item_id,
+            reaction_data.user_id,
+            reaction_data.reaction,
+        )
+        return {
+            "item_id": reaction_data.item_id,
+            "user_id": reaction_data.user_id,
+            "reaction": reaction_data.reaction,
+            "active": active,
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.get("/reactions/room/{room_id}")
+async def get_room_reactions(
+    room_id: str,
+    service: ReactionService = Depends(get_reaction_service),
+) -> dict[str, dict[str, list[str]]]:
+    """Get all reactions for all queue items in a room."""
+    return await service.get_room_reactions(room_id)
 
 
 @router.post("/history/{history_id}/rate", response_model=WatchHistory)

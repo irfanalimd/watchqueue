@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from app.models.vote import VoteCreate, VoteType
 from app.services.voting import VotingService
 from app.services.queue import QueueService
+from app.services.reactions import ReactionService
 
 
 class TestVotingService:
@@ -290,7 +291,7 @@ class TestVotingAPI:
         voting_service: VotingService,
         queue_with_items: dict,
     ):
-        """Test GET /api/votes/{item_id}/{user_id} endpoint."""
+        """Test GET /api/votes/user/{item_id}/{user_id} endpoint."""
         item = queue_with_items["items"][0]
 
         await voting_service.vote(VoteCreate(
@@ -299,7 +300,7 @@ class TestVotingAPI:
             vote=VoteType.UP,
         ))
 
-        response = await client.get(f"/api/votes/{item.id}/alice")
+        response = await client.get(f"/api/votes/user/{item.id}/alice")
         assert response.status_code == 200
         data = response.json()
         assert data["vote"] == "up"
@@ -358,3 +359,104 @@ class TestVotingAPI:
 
         response = await client.delete(f"/api/votes/{item.id}/alice")
         assert response.status_code == 204
+
+
+class TestReactionService:
+    """Tests for ReactionService."""
+
+    async def test_toggle_reaction_add_and_remove(
+        self,
+        db,
+        queue_with_items: dict,
+    ):
+        """Toggling same reaction twice adds then removes."""
+        item = queue_with_items["items"][0]
+        service = ReactionService(db)
+
+        active = await service.toggle_reaction(item.id, "alice", "fire")
+        assert active is True
+
+        active = await service.toggle_reaction(item.id, "alice", "fire")
+        assert active is False
+
+    async def test_get_room_reactions(
+        self,
+        db,
+        queue_with_items: dict,
+    ):
+        """Room reactions returns grouped users by item and reaction type."""
+        service = ReactionService(db)
+        item_a = queue_with_items["items"][0]
+        item_b = queue_with_items["items"][1]
+        room_id = queue_with_items["room"]["_id"]
+
+        await service.toggle_reaction(item_a.id, "alice", "fire")
+        await service.toggle_reaction(item_a.id, "bob", "fire")
+        await service.toggle_reaction(item_a.id, "alice", "hundred")
+        await service.toggle_reaction(item_b.id, "charlie", "sleepy")
+
+        data = await service.get_room_reactions(room_id)
+
+        assert "alice" in data[item_a.id]["fire"]
+        assert "bob" in data[item_a.id]["fire"]
+        assert data[item_a.id]["hundred"] == ["alice"]
+        assert data[item_b.id]["sleepy"] == ["charlie"]
+
+
+class TestReactionAPI:
+    """Tests for reaction API endpoints."""
+
+    async def test_toggle_reaction_api(
+        self,
+        client: AsyncClient,
+        queue_with_items: dict,
+    ):
+        """Test POST /api/votes/reactions endpoint."""
+        item = queue_with_items["items"][0]
+
+        response = await client.post(
+            "/api/votes/reactions",
+            json={
+                "item_id": item.id,
+                "user_id": "alice",
+                "reaction": "fire",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["active"] is True
+
+        response = await client.post(
+            "/api/votes/reactions",
+            json={
+                "item_id": item.id,
+                "user_id": "alice",
+                "reaction": "fire",
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["active"] is False
+
+    async def test_get_room_reactions_api(
+        self,
+        client: AsyncClient,
+        queue_with_items: dict,
+    ):
+        """Test GET /api/votes/reactions/room/{room_id} endpoint."""
+        item = queue_with_items["items"][0]
+        room_id = queue_with_items["room"]["_id"]
+
+        await client.post(
+            "/api/votes/reactions",
+            json={
+                "item_id": item.id,
+                "user_id": "alice",
+                "reaction": "laughing",
+            },
+        )
+
+        response = await client.get(f"/api/votes/reactions/room/{room_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert "alice" in data[item.id]["laughing"]

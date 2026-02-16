@@ -22,6 +22,7 @@ class MovieInfo:
     genres: list[str]
     overview: str | None
     vote_average: float | None = None
+    media_type: str = "movie"
 
 
 @dataclass
@@ -150,6 +151,7 @@ class TMDBClient:
                         genres=genres,
                         overview=item.get("overview"),
                         vote_average=item.get("vote_average"),
+                        media_type="movie",
                     ))
                 elif media_type == "tv":
                     poster_path = item.get("poster_path")
@@ -166,6 +168,7 @@ class TMDBClient:
                         genres=genres,
                         overview=item.get("overview"),
                         vote_average=item.get("vote_average"),
+                        media_type="tv",
                     ))
 
                 if len(results) >= limit:
@@ -195,6 +198,77 @@ class TMDBClient:
             logger.error(f"TMDB get movie failed: {e}")
             return None
 
+    async def get_tv(self, tmdb_id: int) -> MovieInfo | None:
+        """Get TV show details by TMDB ID."""
+        if not self.api_key:
+            logger.warning("TMDB API key not configured")
+            return None
+
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/tv/{tmdb_id}")
+            response.raise_for_status()
+            show = response.json()
+            return MovieInfo(
+                tmdb_id=show["id"],
+                title=show.get("name", show.get("original_name", "")),
+                poster_url=(
+                    f"https://image.tmdb.org/t/p/w500{show['poster_path']}"
+                    if show.get("poster_path")
+                    else None
+                ),
+                year=int(show["first_air_date"][:4]) if show.get("first_air_date") else None,
+                runtime_minutes=((show.get("episode_run_time") or [None])[0]),
+                genres=[g["name"] for g in show.get("genres", [])],
+                overview=show.get("overview"),
+                vote_average=show.get("vote_average"),
+                media_type="tv",
+            )
+        except httpx.HTTPError as e:
+            logger.error(f"TMDB get TV failed: {e}")
+            return None
+
+    async def get_watch_providers(self, tmdb_id: int, media_type: str) -> dict[str, dict[str, Any]]:
+        """Get watch providers by region for a movie or TV show."""
+        if not self.api_key:
+            return {}
+
+        endpoint_type = "tv" if media_type == "tv" else "movie"
+
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/{endpoint_type}/{tmdb_id}/watch/providers")
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", {})
+
+            normalized: dict[str, dict[str, Any]] = {}
+            for region, payload in results.items():
+                providers: list[dict[str, Any]] = []
+                for access_type in ("flatrate", "ads", "free", "rent", "buy"):
+                    for provider in payload.get(access_type, []) or []:
+                        logo_path = provider.get("logo_path")
+                        providers.append(
+                            {
+                                "provider_name": provider.get("provider_name"),
+                                "provider_logo": (
+                                    f"https://image.tmdb.org/t/p/w500{logo_path}"
+                                    if logo_path
+                                    else None
+                                ),
+                                "access_type": access_type,
+                            }
+                        )
+
+                normalized[region.upper()] = {
+                    "link": payload.get("link"),
+                    "providers": providers,
+                }
+            return normalized
+        except httpx.HTTPError as e:
+            logger.error(f"TMDB watch providers failed: {e}")
+            return {}
+
     async def _parse_movie(
         self,
         movie: dict[str, Any],
@@ -223,6 +297,8 @@ class TMDBClient:
             runtime_minutes=runtime,
             genres=genres,
             overview=movie.get("overview"),
+            vote_average=movie.get("vote_average"),
+            media_type="movie",
         )
 
     async def search_tv(self, query: str) -> MovieInfo | None:
@@ -267,6 +343,8 @@ class TMDBClient:
             runtime_minutes=None,  # TV shows don't have a single runtime
             genres=[],
             overview=show.get("overview"),
+            vote_average=show.get("vote_average"),
+            media_type="tv",
         )
 
     async def search(self, query: str) -> MovieInfo | None:
@@ -320,6 +398,8 @@ class StreamingAvailabilityClient:
 
 async def enrich_queue_item(
     title: str,
+    tmdb_id: int | None = None,
+    member_regions: list[str] | None = None,
     tmdb_client: TMDBClient | None = None,
     streaming_client: StreamingAvailabilityClient | None = None,
 ) -> dict[str, Any]:
@@ -337,15 +417,33 @@ async def enrich_queue_item(
         streaming_client = StreamingAvailabilityClient()
 
     try:
-        # Fetch from both sources concurrently
-        tmdb_task = asyncio.create_task(tmdb_client.search(title))
-        streaming_task = asyncio.create_task(streaming_client.get_availability(title))
+        settings = get_settings()
+        default_region = settings.default_region.upper()
+        regions = {
+            default_region,
+            *(r.upper() for r in (member_regions or []) if r),
+        }
 
-        movie_info, streaming = await asyncio.gather(
-            tmdb_task,
-            streaming_task,
-            return_exceptions=True,
-        )
+        if tmdb_id:
+            movie_task = asyncio.create_task(tmdb_client.get_movie(tmdb_id))
+            streaming_task = asyncio.create_task(streaming_client.get_availability(title))
+            movie_info, streaming = await asyncio.gather(
+                movie_task,
+                streaming_task,
+                return_exceptions=True,
+            )
+            if movie_info is None:
+                movie_info = await tmdb_client.get_tv(tmdb_id)
+            if movie_info is None:
+                movie_info = await tmdb_client.search(title)
+        else:
+            tmdb_task = asyncio.create_task(tmdb_client.search(title))
+            streaming_task = asyncio.create_task(streaming_client.get_availability(title))
+            movie_info, streaming = await asyncio.gather(
+                tmdb_task,
+                streaming_task,
+                return_exceptions=True,
+            )
 
         result: dict[str, Any] = {}
 
@@ -356,11 +454,48 @@ async def enrich_queue_item(
             result["year"] = movie_info.year
             result["runtime_minutes"] = movie_info.runtime_minutes
             result["genres"] = movie_info.genres
+            result["vote_average"] = movie_info.vote_average
+
+            watch_providers = await tmdb_client.get_watch_providers(
+                movie_info.tmdb_id,
+                movie_info.media_type,
+            )
+            providers_by_region: dict[str, list[str]] = {}
+            provider_links: list[dict[str, Any]] = []
+            for region in regions:
+                region_data = watch_providers.get(region, {})
+                region_providers = [
+                    p.get("provider_name")
+                    for p in region_data.get("providers", [])
+                    if p.get("provider_name")
+                ]
+                providers_by_region[region] = sorted(set(region_providers))
+                if region == default_region:
+                    link = region_data.get("link")
+                    for provider in region_data.get("providers", []):
+                        provider_name = provider.get("provider_name")
+                        if not provider_name:
+                            continue
+                        provider_links.append(
+                            {
+                                "provider_name": provider_name,
+                                "provider_logo": provider.get("provider_logo"),
+                                "region": region,
+                                "access_type": provider.get("access_type", "flatrate"),
+                                "link": link,
+                            }
+                        )
+
+                    result["streaming_on"] = sorted(set(providers_by_region.get(region, [])))
+                    result["play_now_url"] = link
+
+            result["providers_by_region"] = providers_by_region
+            result["provider_links"] = provider_links
         elif isinstance(movie_info, Exception):
             logger.warning(f"TMDB enrichment failed for '{title}': {movie_info}")
 
         # Handle streaming results
-        if isinstance(streaming, list):
+        if isinstance(streaming, list) and streaming and "streaming_on" not in result:
             result["streaming_on"] = streaming
         elif isinstance(streaming, Exception):
             logger.warning(f"Streaming enrichment failed for '{title}': {streaming}")

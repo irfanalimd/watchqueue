@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.database import Database
 from app.routers import (
     rooms_router,
+    auth_router,
     queue_router,
     voting_router,
     websocket_router,
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
 
     # Include routers
     app.include_router(rooms_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
     app.include_router(queue_router, prefix="/api")
     app.include_router(voting_router, prefix="/api")
     app.include_router(websocket_router)

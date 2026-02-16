@@ -15,6 +15,7 @@ os.environ["MONGODB_URL"] = os.environ.get(
     "mongodb://localhost:27017,localhost:27018,localhost:27019/?replicaSet=rs0"
 )
 os.environ["MONGODB_DATABASE"] = "watchqueue_test"
+os.environ["GOOGLE_CLIENT_ID"] = ""
 
 from app.main import app
 from app.database import Database
@@ -47,7 +48,10 @@ async def db() -> AsyncGenerator[AsyncIOMotorDatabase, None]:
     await database.rooms.delete_many({})
     await database.queue_items.delete_many({})
     await database.votes.delete_many({})
+    await database.reactions.delete_many({})
     await database.watch_history.delete_many({})
+    await database.users.delete_many({})
+    await database.sessions.delete_many({})
 
     await Database.disconnect()
 
@@ -114,6 +118,7 @@ async def movie_room(room_service: RoomService) -> dict:
         "name": room.name,
         "code": room.code,
         "members": [m.model_dump() for m in room.members],
+        "admins": room.admins,
         "settings": room.settings.model_dump(),
     }
 

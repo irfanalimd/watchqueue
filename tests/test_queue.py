@@ -167,6 +167,17 @@ class TestQueueService:
             runtime_minutes=148,
             genres=["Sci-Fi", "Action", "Thriller"],
             streaming_on=["Netflix", "Amazon Prime"],
+            play_now_url="https://www.themoviedb.org/movie/27205/watch",
+            provider_links=[
+                {
+                    "provider_name": "Netflix",
+                    "region": "US",
+                    "access_type": "flatrate",
+                    "provider_logo": "https://image.tmdb.org/t/p/w500/logo.png",
+                    "link": "https://www.themoviedb.org/movie/27205/watch",
+                }
+            ],
+            providers_by_region={"US": ["Netflix", "Amazon Prime"]},
             tmdb_id=27205,
         )
 
@@ -174,6 +185,8 @@ class TestQueueService:
         assert enriched.tmdb_id == 27205
         assert enriched.runtime_minutes == 148
         assert "Netflix" in enriched.streaming_on
+        assert enriched.play_now_url is not None
+        assert enriched.provider_links[0].provider_name == "Netflix"
 
     async def test_remove_item(
         self,
@@ -286,6 +299,50 @@ class TestQueueAPI:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 5
+
+    async def test_get_room_queue_with_provider_filter_api(
+        self,
+        client: AsyncClient,
+        queue_service: QueueService,
+        queue_with_items: dict,
+    ):
+        """Provider filter returns matching items only."""
+        room_id = queue_with_items["room"]["_id"]
+        first_item = queue_with_items["items"][0]
+        await queue_service.enrich_item(
+            first_item.id,
+            streaming_on=["Netflix"],
+            providers_by_region={"US": ["Netflix"]},
+            provider_links=[],
+        )
+
+        response = await client.get(f"/api/queue/room/{room_id}?provider=Netflix")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["_id"] == first_item.id
+
+    async def test_get_room_queue_available_now_filter_api(
+        self,
+        client: AsyncClient,
+        queue_service: QueueService,
+        queue_with_items: dict,
+    ):
+        """Available-now filter only returns streamable items."""
+        room_id = queue_with_items["room"]["_id"]
+        first_item = queue_with_items["items"][0]
+        await queue_service.enrich_item(
+            first_item.id,
+            streaming_on=["Netflix"],
+            providers_by_region={"US": ["Netflix"]},
+            provider_links=[],
+        )
+
+        response = await client.get(f"/api/queue/room/{room_id}?available_now=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["_id"] == first_item.id
 
     async def test_get_queue_item_api(
         self,

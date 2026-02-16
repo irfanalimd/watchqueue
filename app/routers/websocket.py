@@ -24,33 +24,63 @@ class ConnectionManager:
         self.active_connections: dict[str, set[WebSocket]] = {}
         # WebSocket -> user_id mapping
         self.user_mapping: dict[WebSocket, str] = {}
+        # WebSocket -> user display name mapping
+        self.user_name_mapping: dict[WebSocket, str] = {}
+        # (room_id, user_id) -> delayed leave broadcast task
+        self.pending_leave_tasks: dict[tuple[str, str], asyncio.Task] = {}
+        # Delay before announcing a user left, to absorb quick refresh reconnects
+        self.leave_grace_seconds = 2.0
 
-    async def connect(self, websocket: WebSocket, room_id: str, user_id: str):
+    def _has_user_connection(self, room_id: str, user_id: str) -> bool:
+        """Check if a user currently has any active connection in room."""
+        if room_id not in self.active_connections:
+            return False
+        for connection in self.active_connections[room_id]:
+            if self.user_mapping.get(connection) == user_id:
+                return True
+        return False
+
+    async def connect(self, websocket: WebSocket, room_id: str, user_id: str, user_name: str | None = None):
         """Accept and register a WebSocket connection."""
         await websocket.accept()
 
         if room_id not in self.active_connections:
             self.active_connections[room_id] = set()
 
+        was_online = self._has_user_connection(room_id, user_id)
+
+        # Cancel pending leave if user reconnected within grace period
+        leave_key = (room_id, user_id)
+        pending = self.pending_leave_tasks.pop(leave_key, None)
+        if pending:
+            pending.cancel()
+
         self.active_connections[room_id].add(websocket)
         self.user_mapping[websocket] = user_id
+        if user_name:
+            self.user_name_mapping[websocket] = user_name
 
         # Notify room about new user
-        await self.broadcast(
-            room_id,
-            {
-                "type": "user_joined",
-                "user_id": user_id,
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-            exclude=websocket,
-        )
+        if not was_online:
+            await self.broadcast(
+                room_id,
+                {
+                    "type": "user_joined",
+                    "user_id": user_id,
+                    "user_name": user_name or user_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+                exclude=websocket,
+            )
 
         logger.info(f"User {user_id} connected to room {room_id}")
 
     async def disconnect(self, websocket: WebSocket, room_id: str):
         """Remove a WebSocket connection."""
         user_id = self.user_mapping.pop(websocket, None)
+        user_name = self.user_name_mapping.pop(websocket, None)
+        if not user_name and user_id:
+            user_name = await resolve_member_name(room_id, user_id)
 
         if room_id in self.active_connections:
             self.active_connections[room_id].discard(websocket)
@@ -58,18 +88,39 @@ class ConnectionManager:
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
 
-            # Notify room about user leaving
-            if user_id:
-                await self.broadcast(
-                    room_id,
-                    {
-                        "type": "user_left",
-                        "user_id": user_id,
-                        "timestamp": datetime.utcnow().isoformat(),
-                    },
+            # Notify room about user leaving with grace period to avoid refresh flicker
+            if user_id and not self._has_user_connection(room_id, user_id):
+                leave_key = (room_id, user_id)
+                self.pending_leave_tasks[leave_key] = asyncio.create_task(
+                    self._broadcast_left_after_grace(
+                        room_id=room_id,
+                        user_id=user_id,
+                        user_name=user_name or user_id,
+                    )
                 )
 
         logger.info(f"User {user_id} disconnected from room {room_id}")
+
+    async def _broadcast_left_after_grace(self, room_id: str, user_id: str, user_name: str):
+        """Broadcast user_left only if user stays disconnected after grace window."""
+        leave_key = (room_id, user_id)
+        try:
+            await asyncio.sleep(self.leave_grace_seconds)
+            if self._has_user_connection(room_id, user_id):
+                return
+            await self.broadcast(
+                room_id,
+                {
+                    "type": "user_left",
+                    "user_id": user_id,
+                    "user_name": user_name or user_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+        except asyncio.CancelledError:
+            return
+        finally:
+            self.pending_leave_tasks.pop(leave_key, None)
 
     async def broadcast(
         self,
@@ -94,6 +145,7 @@ class ConnectionManager:
         for conn in disconnected:
             self.active_connections[room_id].discard(conn)
             self.user_mapping.pop(conn, None)
+            self.user_name_mapping.pop(conn, None)
 
     async def send_to_user(
         self,
@@ -117,16 +169,37 @@ class ConnectionManager:
         if room_id not in self.active_connections:
             return []
 
-        users = []
+        users: list[str] = []
+        seen: set[str] = set()
         for connection in self.active_connections[room_id]:
             user_id = self.user_mapping.get(connection)
-            if user_id:
+            if user_id and user_id not in seen:
                 users.append(user_id)
+                seen.add(user_id)
         return users
 
 
 # Global connection manager
 manager = ConnectionManager()
+
+
+async def resolve_member_name(room_id: str, user_id: str) -> str | None:
+    """Resolve user's display name from room membership."""
+    if not ObjectId.is_valid(room_id):
+        return None
+
+    db = Database.get_db()
+    room = await db.rooms.find_one(
+        {"_id": ObjectId(room_id)},
+        {"members": 1},
+    )
+    if not room:
+        return None
+
+    for member in room.get("members", []):
+        if member.get("user_id") == user_id:
+            return member.get("name")
+    return None
 
 
 @router.websocket("/ws/{room_id}/{user_id}")
@@ -146,7 +219,9 @@ async def websocket_endpoint(
     """
     settings = get_settings()
 
-    await manager.connect(websocket, room_id, user_id)
+    query_user_name = websocket.query_params.get("user_name")
+    resolved_user_name = query_user_name or await resolve_member_name(room_id, user_id)
+    await manager.connect(websocket, room_id, user_id, user_name=resolved_user_name)
 
     # Send current online users
     await websocket.send_json({
@@ -251,9 +326,26 @@ async def handle_client_message(
                 "type": "selection",
                 "item_id": data.get("item_id"),
                 "title": data.get("title"),
+                "poster_url": data.get("poster_url"),
+                "queue_snapshot": data.get("queue_snapshot", []),
                 "selected_by": user_id,
                 "timestamp": datetime.utcnow().isoformat(),
             },
+        )
+
+    elif msg_type == "reaction":
+        # Client toggled reaction - broadcast to others
+        await manager.broadcast(
+            room_id,
+            {
+                "type": "reaction_update",
+                "item_id": data.get("item_id"),
+                "user_id": user_id,
+                "reaction": data.get("reaction"),
+                "active": data.get("active"),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            exclude=websocket,
         )
 
     elif msg_type == "voting_round_start":
