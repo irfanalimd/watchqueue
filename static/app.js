@@ -63,6 +63,8 @@ const elements = {
     providerFilter: document.getElementById('provider-filter'),
     availableOnlyToggle: document.getElementById('available-only-toggle'),
     savedRoomsList: document.getElementById('saved-rooms-list'),
+    savedRoomsPrevBtn: document.getElementById('saved-rooms-prev-btn'),
+    savedRoomsNextBtn: document.getElementById('saved-rooms-next-btn'),
 
     // Selection overlay
     wheelOverlay: document.getElementById('wheel-overlay'),
@@ -95,9 +97,11 @@ function isCurrentUserAdmin() {
 
 function updateAuthUI() {
     if (state.currentUser) {
+        elements.googleSigninBtn.style.display = 'none';
         elements.logoutBtn.style.display = 'inline-flex';
         elements.authUserLabel.textContent = `Signed in as ${state.currentUser.email || state.currentUser.user_id}`;
     } else {
+        elements.googleSigninBtn.style.display = 'block';
         elements.logoutBtn.style.display = 'none';
         elements.authUserLabel.textContent = 'Sign in with Google to create/join rooms';
     }
@@ -136,6 +140,39 @@ function showModal(modalId) {
 
 function hideModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
+}
+
+function updateSavedRoomsNavState() {
+    const list = elements.savedRoomsList;
+    if (!list || !elements.savedRoomsPrevBtn || !elements.savedRoomsNextBtn) return;
+
+    const roomCount = list.querySelectorAll('.saved-room-item').length;
+    const hasOverflow = roomCount > 3 && (list.scrollWidth - list.clientWidth > 6);
+    const atStart = list.scrollLeft <= 4;
+    const atEnd = (list.scrollLeft + list.clientWidth) >= (list.scrollWidth - 4);
+
+    list.classList.toggle('overflowing', hasOverflow);
+    elements.savedRoomsPrevBtn.style.display = hasOverflow ? 'inline-flex' : 'none';
+    elements.savedRoomsNextBtn.style.display = hasOverflow ? 'inline-flex' : 'none';
+    elements.savedRoomsPrevBtn.disabled = !hasOverflow || atStart;
+    elements.savedRoomsNextBtn.disabled = !hasOverflow || atEnd;
+}
+
+function scrollSavedRooms(direction) {
+    const list = elements.savedRoomsList;
+    if (!list) return;
+    const distance = Math.max(220, list.clientWidth * 0.8);
+    list.scrollBy({ left: direction * distance, behavior: 'smooth' });
+}
+
+function initSavedRoomsScroller() {
+    if (!elements.savedRoomsPrevBtn || !elements.savedRoomsNextBtn || !elements.savedRoomsList) return;
+
+    elements.savedRoomsPrevBtn.addEventListener('click', () => scrollSavedRooms(-1));
+    elements.savedRoomsNextBtn.addEventListener('click', () => scrollSavedRooms(1));
+
+    elements.savedRoomsList.addEventListener('scroll', updateSavedRoomsNavState, { passive: true });
+    window.addEventListener('resize', () => window.requestAnimationFrame(updateSavedRoomsNavState));
 }
 
 function initLandingBackgroundMotion() {
@@ -1234,6 +1271,7 @@ function removeJoinedRoom(roomId) {
 function renderSavedRooms() {
     if (!state.joinedRooms.length) {
         elements.savedRoomsList.innerHTML = '<p class="subtle">No saved rooms yet</p>';
+        updateSavedRoomsNavState();
         return;
     }
 
@@ -1243,11 +1281,8 @@ function renderSavedRooms() {
             <span class="saved-room-code">${escapeHtml(room.code)}</span>
             <span class="saved-room-members">${(room.members || []).length} members</span>
             <div class="saved-room-actions">
-                <button class="btn btn-ghost saved-room-open" data-room-id="${room._id}">Open</button>
-                <button class="btn btn-ghost saved-room-leave" data-room-id="${room._id}">Leave Room</button>
-                ${(room.admins || []).includes(state.currentUser?.user_id)
-                    ? `<button class="btn btn-danger saved-room-delete" data-room-id="${room._id}">Delete</button>`
-                    : ''}
+                <button class="btn btn-ghost saved-room-open" data-room-id="${room._id}">Enter</button>
+                <button class="btn btn-ghost saved-room-leave" data-room-id="${room._id}">Leave</button>
             </div>
         </div>
     `).join('');
@@ -1315,31 +1350,7 @@ function renderSavedRooms() {
         });
     });
 
-    elements.savedRoomsList.querySelectorAll('.saved-room-delete').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const roomId = btn.dataset.roomId;
-            const confirmed = confirm('Delete this room permanently?');
-            if (!confirmed) return;
-
-            try {
-                await deleteRoomApi(roomId);
-                if (state.currentRoom?._id === roomId && state.ws) {
-                    state.ws.close();
-                    state.currentRoom = null;
-                    state.queue = [];
-                    state.userVotes = {};
-                    state.reactions = {};
-                    localStorage.removeItem('watchqueue_room');
-                    showScreen('landing-screen');
-                }
-                removeJoinedRoom(roomId);
-                await refreshMemberRooms();
-                showToast('Room deleted');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        });
-    });
+    updateSavedRoomsNavState();
 }
 
 async function refreshMemberRooms() {
@@ -1388,6 +1399,7 @@ async function enterRoom(room) {
 // Initialize
 function init() {
     initLandingBackgroundMotion();
+    initSavedRoomsScroller();
 
     // Avatar picker event listeners
     document.querySelectorAll('.avatar-picker').forEach(picker => {

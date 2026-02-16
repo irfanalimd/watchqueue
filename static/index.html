@@ -25,40 +25,60 @@
                 </div>
             </div>
 
+            <div class="auth-controls">
+                <div id="google-signin-btn"></div>
+                <button id="logout-btn" class="btn btn-ghost" style="display:none;">Log out</button>
+            </div>
+            <p id="auth-user-label" class="subtle"></p>
+
             <div class="landing-container">
-                <div class="hero-kicker">Collaborative Movie Night</div>
+                <div class="hero-kicker">Collaborative Movie/Show Selection</div>
                 <div class="logo">
                     <span class="logo-icon">▶</span>
                     <h1>WatchQueue</h1>
                 </div>
-                <p class="tagline">A shared queue that makes group watch decisions feel effortless.</p>
-                <div class="auth-controls">
-                    <div id="google-signin-btn"></div>
-                    <button id="logout-btn" class="btn btn-ghost" style="display:none;">Log out</button>
-                </div>
-                <p id="auth-user-label" class="subtle"></p>
 
                 <div class="landing-actions">
                     <div class="action-card" id="create-room-card">
-                        <div class="action-icon">+</div>
+                        <div class="action-icon action-icon-create" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <rect x="4" y="4" width="16" height="16" rx="4"></rect>
+                                <path d="M12 8.2V15.8"></path>
+                                <path d="M8.2 12H15.8"></path>
+                            </svg>
+                        </div>
                         <h3>Create Room</h3>
                         <p>Start a new watch party</p>
                     </div>
 
                     <div class="action-card" id="join-room-card">
-                        <div class="action-icon">→</div>
+                        <div class="action-icon action-icon-join" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none">
+                                <path d="M5 12H17"></path>
+                                <path d="M13 8L17.6 12L13 16"></path>
+                                <path d="M17.6 12H10.5"></path>
+                            </svg>
+                        </div>
                         <h3>Join Room</h3>
                         <p>Enter with a code</p>
                     </div>
                 </div>
 
                 <section class="saved-rooms-section">
-                    <h3>Your Rooms</h3>
+                    <div class="saved-rooms-header">
+                        <h3>Your Rooms</h3>
+                        <div class="saved-rooms-nav">
+                            <button id="saved-rooms-prev-btn" class="saved-rooms-nav-btn" type="button" aria-label="Scroll rooms left">←</button>
+                            <button id="saved-rooms-next-btn" class="saved-rooms-nav-btn" type="button" aria-label="Scroll rooms right">→</button>
+                        </div>
+                    </div>
                     <div id="saved-rooms-list" class="saved-rooms-list">
                         <p class="subtle">No saved rooms yet</p>
                     </div>
                 </section>
             </div>
+
+            <p class="landing-credit">Made with <span class="credit-heart">❤</span> by Irfan</p>
         </div>
 
         <!-- Create Room Modal -->
@@ -86,9 +106,22 @@
                             <span class="avatar-option" data-avatar="🦄">🦄</span>
                             <span class="avatar-option" data-avatar="🐼">🐼</span>
                             <span class="avatar-option" data-avatar="🦁">🦁</span>
+                            <span class="avatar-option" data-avatar="🐯">🐯</span>
+                            <span class="avatar-option" data-avatar="🐨">🐨</span>
+                            <span class="avatar-option" data-avatar="🐙">🐙</span>
+                            <span class="avatar-option" data-avatar="🐧">🐧</span>
+                            <span class="avatar-option" data-avatar="🦉">🦉</span>
+                            <span class="avatar-option" data-avatar="🐺">🐺</span>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Create Room</button>
+                    <button type="submit" class="btn btn-primary modal-submit-btn">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <rect x="4" y="4" width="16" height="16" rx="4"></rect>
+                            <path d="M12 8.2V15.8"></path>
+                            <path d="M8.2 12H15.8"></path>
+                        </svg>
+                        Create Room
+                    </button>
                 </form>
             </div>
         </div>
@@ -118,9 +151,22 @@
                             <span class="avatar-option" data-avatar="🦄">🦄</span>
                             <span class="avatar-option" data-avatar="🐼">🐼</span>
                             <span class="avatar-option" data-avatar="🦁">🦁</span>
+                            <span class="avatar-option" data-avatar="🐯">🐯</span>
+                            <span class="avatar-option" data-avatar="🐨">🐨</span>
+                            <span class="avatar-option" data-avatar="🐙">🐙</span>
+                            <span class="avatar-option" data-avatar="🐧">🐧</span>
+                            <span class="avatar-option" data-avatar="🦉">🦉</span>
+                            <span class="avatar-option" data-avatar="🐺">🐺</span>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Join Room</button>
+                    <button type="submit" class="btn btn-primary modal-submit-btn">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M5 12H17"></path>
+                            <path d="M13 8L17.6 12L13 16"></path>
+                            <path d="M17.6 12H10.5"></path>
+                        </svg>
+                        Join Room
+                    </button>
                 </form>
             </div>
         </div>
