@@ -138,6 +138,43 @@ function hideModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
 }
 
+function initLandingBackgroundMotion() {
+    const landing = elements.landingScreen;
+    if (!landing) return;
+
+    let rafId = null;
+    let nextX = 50;
+    let nextY = 50;
+
+    const flushPosition = () => {
+        landing.style.setProperty('--pointer-x', `${nextX}%`);
+        landing.style.setProperty('--pointer-y', `${nextY}%`);
+        rafId = null;
+    };
+
+    const queuePositionUpdate = (clientX, clientY) => {
+        const rect = landing.getBoundingClientRect();
+        nextX = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+        nextY = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100));
+
+        if (rafId === null) {
+            rafId = window.requestAnimationFrame(flushPosition);
+        }
+    };
+
+    landing.addEventListener('pointermove', (event) => {
+        queuePositionUpdate(event.clientX, event.clientY);
+    });
+
+    landing.addEventListener('pointerleave', () => {
+        nextX = 50;
+        nextY = 50;
+        if (rafId === null) {
+            rafId = window.requestAnimationFrame(flushPosition);
+        }
+    });
+}
+
 function getSelectedAvatar(pickerId) {
     const selected = document.querySelector(`#${pickerId} .avatar-option.selected`);
     return selected ? selected.dataset.avatar : '😀';
@@ -1350,6 +1387,8 @@ async function enterRoom(room) {
 
 // Initialize
 function init() {
+    initLandingBackgroundMotion();
+
     // Avatar picker event listeners
     document.querySelectorAll('.avatar-picker').forEach(picker => {
         picker.addEventListener('click', (e) => {

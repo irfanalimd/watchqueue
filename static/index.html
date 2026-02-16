@@ -7,18 +7,31 @@
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="app">
         <!-- Landing/Join Screen -->
         <div id="landing-screen" class="screen active">
+            <div class="landing-background" aria-hidden="true">
+                <div class="bg-mesh"></div>
+                <div class="bg-grid"></div>
+                <div class="bg-noise"></div>
+                <div class="bg-orbs">
+                    <span class="orb orb-one"></span>
+                    <span class="orb orb-two"></span>
+                    <span class="orb orb-three"></span>
+                    <span class="orb orb-four"></span>
+                </div>
+            </div>
+
             <div class="landing-container">
+                <div class="hero-kicker">Collaborative Movie Night</div>
                 <div class="logo">
                     <span class="logo-icon">▶</span>
                     <h1>WatchQueue</h1>
                 </div>
-                <p class="tagline">Decide what to watch together</p>
+                <p class="tagline">A shared queue that makes group watch decisions feel effortless.</p>
                 <div class="auth-controls">
                     <div id="google-signin-btn"></div>
                     <button id="logout-btn" class="btn btn-ghost" style="display:none;">Log out</button>
