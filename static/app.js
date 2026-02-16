@@ -1,7 +1,8 @@
 // WatchQueue Frontend Application
 
 const API_BASE = '/api';
-const WS_BASE = `ws://${window.location.host}`;
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const WS_BASE = `${WS_PROTOCOL}://${window.location.host}`;
 const REACTION_TYPES = ['fire', 'sleepy', 'laughing', 'scream', 'hundred'];
 const REACTION_EMOJI = {
     fire: '🔥',
