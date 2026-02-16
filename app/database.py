@@ -4,6 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import IndexModel, ASCENDING, DESCENDING
 from typing import AsyncGenerator
 import logging
+import certifi
 
 from app.config import get_settings
 
@@ -20,8 +21,23 @@ class Database:
     async def connect(cls) -> None:
         """Connect to MongoDB and set up indexes."""
         settings = get_settings()
-        cls.client = AsyncIOMotorClient(settings.mongodb_url)
+
+        client_options: dict = {
+            "serverSelectionTimeoutMS": 30000,
+            "connectTimeoutMS": 20000,
+            "socketTimeoutMS": 20000,
+        }
+
+        # Force CA bundle usage on hosted environments (Render) to avoid TLS trust/handshake issues.
+        if settings.mongodb_url.startswith("mongodb+srv://"):
+            client_options["tls"] = True
+            client_options["tlsCAFile"] = certifi.where()
+
+        cls.client = AsyncIOMotorClient(settings.mongodb_url, **client_options)
         cls.db = cls.client[settings.mongodb_database]
+
+        # Verify connectivity before proceeding to index creation/migrations.
+        await cls.client.admin.command("ping")
         logger.info(f"Connected to MongoDB database: {settings.mongodb_database}")
         await cls._create_indexes()
         await cls.run_migrations()
