@@ -360,6 +360,21 @@ async def handle_client_message(
             },
         )
 
+    elif msg_type == "room_admin_update":
+        # Admin privileges changed - broadcast to all other clients in room.
+        await manager.broadcast(
+            room_id,
+            {
+                "type": "room_admin_update",
+                "target_user_id": data.get("target_user_id"),
+                "target_name": data.get("target_name"),
+                "shared_by": data.get("shared_by") or user_id,
+                "shared_by_name": data.get("shared_by_name"),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            exclude=websocket,
+        )
+
     elif msg_type == "get_presence":
         # Client requesting current presence
         await websocket.send_json({

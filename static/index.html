@@ -184,6 +184,27 @@
             </div>
         </div>
 
+        <!-- Share Admin Modal -->
+        <div id="share-admin-modal" class="modal">
+            <div class="modal-content modal-content-sm">
+                <button class="modal-close" id="share-admin-close">&times;</button>
+                <h3>Share Admin Privileges</h3>
+                <p class="name-conflict-text">Type a member name or pick from the list below.</p>
+                <form id="share-admin-form">
+                    <div class="form-group">
+                        <label for="share-admin-name-input">Member Name</label>
+                        <input type="text" id="share-admin-name-input" placeholder="Enter member name" required>
+                    </div>
+                    <p id="share-admin-error" class="share-admin-error subtle"></p>
+                    <div id="share-admin-candidates" class="share-admin-candidates"></div>
+                    <div class="name-conflict-actions">
+                        <button type="submit" class="btn btn-primary">Share</button>
+                        <button type="button" class="btn btn-ghost" id="share-admin-cancel-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- Room Screen -->
         <div id="room-screen" class="screen">
             <header class="room-header">

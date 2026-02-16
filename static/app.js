@@ -50,6 +50,13 @@ const elements = {
     nameConflictKeepBtn: document.getElementById('name-conflict-keep-btn'),
     nameConflictChangeBtn: document.getElementById('name-conflict-change-btn'),
     nameConflictCloseBtn: document.getElementById('name-conflict-close'),
+    shareAdminModal: document.getElementById('share-admin-modal'),
+    shareAdminForm: document.getElementById('share-admin-form'),
+    shareAdminNameInput: document.getElementById('share-admin-name-input'),
+    shareAdminCandidates: document.getElementById('share-admin-candidates'),
+    shareAdminError: document.getElementById('share-admin-error'),
+    shareAdminCancelBtn: document.getElementById('share-admin-cancel-btn'),
+    shareAdminCloseBtn: document.getElementById('share-admin-close'),
 
     // Room elements
     roomTitle: document.getElementById('room-title'),
@@ -216,6 +223,85 @@ function initLandingBackgroundMotion() {
 function getSelectedAvatar(pickerId) {
     const selected = document.querySelector(`#${pickerId} .avatar-option.selected`);
     return selected ? selected.dataset.avatar : '😀';
+}
+
+function askShareAdminCandidate(candidates) {
+    return new Promise((resolve) => {
+        if (!elements.shareAdminModal || !elements.shareAdminForm) {
+            resolve(null);
+            return;
+        }
+
+        elements.shareAdminNameInput.value = '';
+        elements.shareAdminError.textContent = '';
+        elements.shareAdminCandidates.innerHTML = candidates.map((member) => `
+            <button type="button" class="share-admin-candidate" data-user-id="${member.user_id}">
+                ${escapeHtml(member.avatar || '👤')} ${escapeHtml(member.name)}
+            </button>
+        `).join('');
+
+        elements.shareAdminModal.classList.add('active');
+
+        const cleanup = () => {
+            elements.shareAdminModal.classList.remove('active');
+            elements.shareAdminForm.removeEventListener('submit', onSubmit);
+            elements.shareAdminCancelBtn.removeEventListener('click', onCancel);
+            elements.shareAdminCloseBtn.removeEventListener('click', onCancel);
+            elements.shareAdminModal.removeEventListener('click', onBackdrop);
+            elements.shareAdminCandidates.removeEventListener('click', onCandidateClick);
+        };
+
+        const onCancel = () => {
+            cleanup();
+            resolve(null);
+        };
+
+        const onBackdrop = (event) => {
+            if (event.target === elements.shareAdminModal) {
+                onCancel();
+            }
+        };
+
+        const onCandidateClick = (event) => {
+            const button = event.target.closest('.share-admin-candidate');
+            if (!button) return;
+            const selected = candidates.find((member) => member.user_id === button.dataset.userId) || null;
+            cleanup();
+            resolve(selected);
+        };
+
+        const onSubmit = (event) => {
+            event.preventDefault();
+            const typedName = elements.shareAdminNameInput.value.trim().toLowerCase();
+            if (!typedName) {
+                elements.shareAdminError.textContent = 'Enter a member name.';
+                return;
+            }
+
+            const matches = candidates.filter(
+                (member) => (member.name || '').trim().toLowerCase() === typedName
+            );
+
+            if (!matches.length) {
+                elements.shareAdminError.textContent = 'No matching member found. Try exact name or pick from list.';
+                return;
+            }
+
+            if (matches.length > 1) {
+                elements.shareAdminError.textContent = 'Multiple members have this name. Select from the list below.';
+                return;
+            }
+
+            cleanup();
+            resolve(matches[0]);
+        };
+
+        elements.shareAdminForm.addEventListener('submit', onSubmit);
+        elements.shareAdminCancelBtn.addEventListener('click', onCancel);
+        elements.shareAdminCloseBtn.addEventListener('click', onCancel);
+        elements.shareAdminModal.addEventListener('click', onBackdrop);
+        elements.shareAdminCandidates.addEventListener('click', onCandidateClick);
+    });
 }
 
 function askNameConflictChoice(oldName, newName) {
@@ -726,6 +812,21 @@ async function handleWebSocketMessage(data) {
         case 'reaction_update':
             updateReactionState(data.item_id, data.reaction, data.user_id, Boolean(data.active));
             renderQueue();
+            break;
+
+        case 'room_admin_update':
+            if (state.currentRoom?._id) {
+                try {
+                    state.currentRoom = await loadRoom(state.currentRoom._id);
+                    updateMembersDisplay();
+                    await refreshMemberRooms();
+                } catch (error) {
+                    console.error('Failed to refresh room on room_admin_update:', error);
+                }
+            }
+            if (data.target_name && data.shared_by_name) {
+                showActivityToast(`${data.shared_by_name} made ${data.target_name} an admin`);
+            }
             break;
 
         case 'selection':
@@ -1638,13 +1739,19 @@ function init() {
             return;
         }
 
-        const options = candidates.map((m) => `${m.user_id} (${m.name})`).join('\n');
-        const selectedUserId = prompt(`Enter user_id to make admin:\n${options}`);
-        if (!selectedUserId) return;
+        const selectedMember = await askShareAdminCandidate(candidates);
+        if (!selectedMember) return;
 
         try {
-            state.currentRoom = await shareAdminApi(state.currentRoom._id, selectedUserId.trim());
+            state.currentRoom = await shareAdminApi(state.currentRoom._id, selectedMember.user_id);
             updateMembersDisplay();
+            await refreshMemberRooms();
+            sendWebSocketMessage('room_admin_update', {
+                target_user_id: selectedMember.user_id,
+                target_name: selectedMember.name,
+                shared_by: state.currentUser.user_id,
+                shared_by_name: getMemberName(state.currentUser.user_id),
+            });
             showToast('Admin privileges shared');
         } catch (error) {
             showToast(error.message, 'error');
